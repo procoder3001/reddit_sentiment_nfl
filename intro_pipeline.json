@@ -1,0 +1,62 @@
+{
+  "pipelineSpec": {
+    "components": {
+      "comp-get-sentiment": {
+        "executorLabel": "exec-get-sentiment"
+      }
+    },
+    "deploymentSpec": {
+      "executors": {
+        "exec-get-sentiment": {
+          "container": {
+            "args": [
+              "--executor_input",
+              "{{$}}",
+              "--function_to_execute",
+              "get_sentiment"
+            ],
+            "command": [
+              "sh",
+              "-c",
+              "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'transformers==4.19.4' 'pandas==1.5.0' 'kfp==1.8.16' && \"$0\" \"$@\"\n",
+              "sh",
+              "-ec",
+              "program_path=$(mktemp -d)\nprintf \"%s\" \"$0\" > \"$program_path/ephemeral_component.py\"\npython3 -m kfp.v2.components.executor_main                         --component_module_path                         \"$program_path/ephemeral_component.py\"                         \"$@\"\n",
+              "\nimport kfp\nfrom kfp.v2 import dsl\nfrom kfp.v2.dsl import *\nfrom typing import *\n\ndef get_sentiment() -> None:\n    print(\"hi\")\n    import logging\n    import sys\n    # set up logging\n    logging.basicConfig(stream = sys.stdout)\n    logger = logging.getLogger(\"get_sentiment\")\n    logger.setLevel(\"INFO\")\n\n    logging.info(\"Test to see if logging works\")\n    print(\"hi 2\")\n\n    from transformers import pipeline\n    logging.info(\"Loaded hf pipeline\")\n    import pandas as pd\n\n    # from pandasql import sqldf\n    # set up pysqldf\n    # pysqldf = lambda q: sqldf(q, globals())\n    # logging.info(\"Set up pysqldf\")\n    # print(\"hi 3\")\n\n    # Allocate a pipeline for sentiment-analysis\n    classifier = pipeline('sentiment-analysis')\n    logging.info(\"Getting sentiment analysis model\")\n\n    # read data\n    input_comments_df = pd.read_csv(\"gs://gcf-sources-134756275535-us-central1/nfl_comments.csv\")\n    logging.info(\"Get input comments\")\n\n    # TODO: figure out how to retain types when transferring to and from GCP\n    # cast to right types to make pandasql work\n    input_comments_df[\"team_name\"] = input_comments_df[\"team_name\"].astype(\"str\")\n    input_comments_df[\"comment\"] = input_comments_df[\"comment\"].astype(\"str\")\n    input_comments_df[\"upload_date\"] = input_comments_df[\"upload_date\"].astype(\"datetime64[ns]\")\n\n    # classify sentiment\n    input_comments_df[\"sentiment\"] = input_comments_df.apply(lambda row: classifier(row.comment), axis = 1)\n    input_comments_df[\"label\"] = input_comments_df.apply(lambda row: row.sentiment[0][\"label\"], axis = 1)\n    input_comments_df[\"score\"] = input_comments_df.apply(lambda row: row.sentiment[0][\"score\"], axis = 1)\n    logging.info(\"Classify sentiment\")\n\n    # drop unncessary column\n    input_comments_df.drop(\"sentiment\", axis = 1, inplace=True)\n\n    # cast to right types to make pandasql work\n\n    input_comments_df[\"label\"] = input_comments_df[\"label\"].astype(\"str\")\n\n\n    # q = \"\"\"\n    # WITH b AS (\n    #     SELECT *,\n    #     IIF(label = \"POSITIVE\",1,-1) AS sign\n    #     FROM input_comments_df\n    # )\n    # SELECT team_name, AVG(score*sign) AS sentiment_summary\n    # FROM b\n    # GROUP BY team_name\n    # \"\"\"\n\n    # final_stats = pysqldf(q)\n    # logging.info(\"Get aggregated stats\")\n\n    # save comments with sentiment probabilities\n    input_comments_df.to_csv(\"gs://gcf-sources-134756275535-us-central1/nfl_comments_w_sentiment.csv\", index = False)\n    # save aggregated stats for app\n    # final_stats.to_csv(\"gs://gcf-sources-134756275535-us-central1/nfl_comments_agg_stats.csv\", index = False)\n\n    return\n\n"
+            ],
+            "image": "python:3.9",
+            "resources": {
+              "cpuLimit": 1.0,
+              "memoryLimit": 3.0
+            }
+          }
+        }
+      }
+    },
+    "pipelineInfo": {
+      "name": "nfl-subreddit-sentiment"
+    },
+    "root": {
+      "dag": {
+        "tasks": {
+          "get-sentiment": {
+            "cachingOptions": {
+              "enableCache": true
+            },
+            "componentRef": {
+              "name": "comp-get-sentiment"
+            },
+            "taskInfo": {
+              "name": "get-sentiment"
+            }
+          }
+        }
+      }
+    },
+    "schemaVersion": "2.0.0",
+    "sdkVersion": "kfp-1.8.16"
+  },
+  "runtimeConfig": {
+    "gcsOutputDirectory": "gs://vertex_pipeline_hello_world/pipeline_root/intro"
+  }
+}
